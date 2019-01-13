@@ -1,0 +1,66 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "variables": {
+    "templateBaseUrl": "https://nested.blob.core.windows.net/nested/",
+    "sharedTemplateUrl": "[concat(variables('templateBaseUrl'),'storagedeploy.json')]",
+    "sharedTemplateParam": "[concat(variables('templateBaseUrl'),'storagedeploy.parameters.json')]",
+    "firstresourceGroupName": "MMSG.Beyond2020.API.SIT",
+    "secondResourceGroupName": "MMSG.Beyond2020.API.PREPROD",
+    "rgLocation": "AustraliaEast",
+    "secondrgLocation" : "AustraliaEast",
+    "functionTemplateUrl": "[concat(variables('templateBaseUrl'),'azurefunctiondeploy.json')]",
+    "secondFunctionTemplateUrl": "[concat(variables('templateBaseUrl'),'azurefunction2deploy.json')]"
+    },
+    "resources": [
+    {
+    "apiVersion": "2018-05-01",
+    "name": "linkedTemplate",
+    "type": "Microsoft.Resources/deployments",
+    "resourceGroup": "[variables('firstresourceGroupName')]",
+    
+    "properties": {
+    "mode": "Incremental",
+    "templateLink": {
+    "uri": "[variables('functionTemplateUrl')]",
+    "contentVersion": "1.0.0.0"
+    }
+    }
+    },
+    {
+    "apiVersion": "2018-05-01",
+    "name": "secondlinkedTemplate",
+    "type": "Microsoft.Resources/deployments",
+    
+    "properties": {
+    "mode": "Incremental",
+    "templateLink": {
+    "uri": "[variables('secondFunctionTemplateUrl')]",
+    "contentVersion": "1.0.0.0"
+    }
+    }
+    }
+    ],
+    "outputs": {
+    "FirststorageName": {
+    "type": "string",
+    "value": "[reference('linkedTemplate').outputs.storageAccountName.value]"
+    },
+    "FirstfunctionAppname":
+    {
+    "type": "string",
+    "value": "[reference('linkedTemplate').outputs.functionAppName.value]"
+    },
+    "secondstoragename":
+    {
+    "type": "string",
+    "value": "[reference('secondlinkedTemplate').outputs.storageAccountName.value]"
+    },
+    "secondfunctionAppname":
+    {
+    "type": "string",
+    "value": "[reference('secondlinkedTemplate').outputs.functionAppName.value]"
+    }
+    }
+    }
+    
