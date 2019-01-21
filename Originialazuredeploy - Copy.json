@@ -1,0 +1,714 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+
+        "domainadminUsername": {
+            "type": "string"
+
+        },
+        "domainadminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "The password for the administrator account of the new VM and domain"
+            }
+        },
+
+        "numberOfADInstances": {
+            "type": "int",
+            "defaultValue": 1,
+            "minValue": 1,
+            "maxValue": 5,
+            "metadata": {
+                "description": "Number of AD VMs to deploy, limit 5 since this sample is using a single storage account"
+            }
+        },
+        "domainToJoin": {
+            "type": "string",
+            "defaultValue": "mydomain.local",
+            "metadata": {
+                "description": "The FQDN of the AD domain"
+            }
+        },
+
+        "domainName": {
+            "type": "string",
+            "defaultvalue": "mydomain.local",
+            "metadata": {
+                "description": "The FQDN of the Active Directory Domain to be created"
+            }
+        },
+
+        "domainJoinOptions": {
+            "type": "int",
+            "Defaultvalue": 3,
+            "metadata": {
+                "description": "Set of bit flags that define the join options. Default value of 3 is a combination of NETSETUP_JOIN_DOMAIN (0x00000001) & NETSETUP_ACCT_CREATE (0x00000002) i.e. will join the domain and create the account on the domain. For more information see https://msdn.microsoft.com/en-us/library/aa392154(v=vs.85).aspx"
+            }
+        },
+        "ouPath": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Specifies an organizational unit (OU) for the domain account. Enter the full distinguished name of the OU in quotation marks. Example: \"OU=testOU; DC=domain; DC=Domain; DC=com\""
+            }
+        },
+
+        "IISdnsPrefix": {
+            "type": "string",
+            "metadata": {
+                "description": "The DNS prefix for the public IP address used by the Load Balancer"
+            }
+        },
+        "SQLdnsPrefix": {
+            "type": "string",
+            "metadata": {
+                "description": "The DNS prefix for the public IP address used by the Load Balancer"
+            }
+        },
+        "ADdnsPrefix": {
+            "type": "string",
+            "metadata": {
+                "description": "The DNS prefix for the public IP address used by the Load Balancer"
+            }
+        },
+
+        "_artifactsLocation": {
+            "type": "string",
+            "metadata": {
+                "description": "The location of resources, such as templates and DSC modules, that the template depends on"
+            },
+            "defaultValue": "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/active-directory-new-domain"
+        },
+        "_artifactsLocationSasToken": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Auto-generated token to access _artifactsLocation"
+            },
+            "defaultValue": ""
+        },
+
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Location for all resources."
+            }
+        },
+
+        "modulesUrl": {
+            "type": "string",
+            "metadata": {
+                "description": "URL for the DSC configuration module. NOTE: Can be a Github url(raw) to the zip file"
+            },
+            "defaultValue": "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/dsc-extension-iis-server-windows-vm"
+        },
+
+
+        "configurationFunction": {
+            "type": "string",
+            "defaultValue": "ContosoWebsite.ps1\\ContosoWebsite",
+            "metadata": {
+                "description": "DSC configuration function to call"
+            }
+        },
+
+        "customerPrefixID": {
+            "type": "string",
+            "metadata": {
+                "description": "Prefix for the customer environment (2-5 characters)"
+            },
+            "defaultValue": "mmsg",
+            "minLength": 2,
+            "maxLength": 5
+        },
+
+        "storageAccountType": {
+            "type": "string",
+            "allowedValues": [
+                "Standard_LRS",
+                "Premium_LRS"
+            ],
+            "metadata": {
+                "description": "The type of the Storage Account created, Standard or Premium Locally Redundant"
+            },
+            "defaultValue": "Standard_LRS"
+        },
+
+        "sqlServerVMSize": {
+            "type": "string",
+            "allowedValues": [
+            "Standard_DS1",
+            "Standard_DS2",
+            "Standard_DS3",
+            "Standard_DS4"
+            ],
+            "metadata": {
+            "description": "The size of the SQL VM Created"
+            },
+            "defaultValue": "Standard_DS3"
+            }
+            
+    },
+
+
+
+    "variables": {
+        "virtualNetworkName": "adVNET",
+        "virtualNetworkAddressRange": "10.0.0.0/16",
+
+        "SubnetName": "adSubnet",
+        "subnetAddressPrefix": "10.0.0.0/24",
+
+        "adAvailabilitySetName": "adAvailabiltySet",
+
+        "ADpublicIPAddressName": "ADPublicIP",
+        "IISpublicIPAddressName": "IISPublicIP",
+        "SQLpublicIPAddressName": "SQLPublicIP",
+
+        "SQLVMName": "SQL",
+        "adVMName": "ADDC",
+        "IISVMName": "IISVM",
+
+        "adNicName": "adNic",
+        "IISNicName": "IISNIC",
+        "SQLNicName": "SQLNIC",
+
+        "adNicIPAddress": "10.0.0.15",
+        "IISNicIPAddress": "10.0.0.14",
+        "SQLNicIPAddress": "10.0.0.16",
+
+        "vmExtensionName": "Install-IIS-dscExtension",
+
+        "storageAccountName": "[concat(toLower(parameters('customerPrefixID')), 'sa', uniqueString(resourceGroup().id))]",
+        "vhdContainer": "vhds",
+
+        "sqlServerOSDiskName": "[concat(parameters('customerPrefixID'), 'SQLServerOS')]",
+        "sqlServerDataDiskName": "[concat(parameters('customerPrefixID'), 'SQLServerData')]",
+        "sqlImagePublisher": "MicrosoftSQLServer",
+        "sqlImageOffer": "SQL2016SP1-WS2016",
+        "apiVersion": "2015-06-15",
+        "sqlImageSKU": "Standard",
+        "sqlServerVMSize": "[parameters('sqlServerVMSize')]"
+
+    },
+    "resources": [
+
+        {
+            "name": "[variables('storageAccountName')]",
+            "type": "Microsoft.Storage/storageAccounts",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2015-06-15",
+            "dependsOn": [],
+            "tags": {
+                "displayName": "StorageForEnvironment"
+            },
+            "properties": {
+                "accountType": "[parameters('storageAccountType')]"
+            }
+        },
+
+
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "name": "[variables('ADpublicIPAddressName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "tags": {
+                "displayName": "ADPublicIP"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Dynamic",
+                "dnsSettings": {
+                    "domainNameLabel": "[parameters('ADdnsPrefix')]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "name": "[variables('IISpublicIPAddressName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "tags": {
+                "displayname": "IISPublicIP"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Dynamic",
+                "dnsSettings": {
+                    "domainNameLabel": "[parameters('IISdnsPrefix')]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "name": "[variables('SQLpublicIPAddressName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "tags": {
+                "displayname": "SQLPublicIP"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Dynamic",
+                "dnsSettings": {
+                    "domainNameLabel": "[parameters('SQLdnsPrefix')]"
+                }
+            }
+        },
+        {
+            "apiVersion": "2017-03-30",
+            "type": "Microsoft.Compute/availabilitySets",
+            "location": "[parameters('location')]",
+            "name": "[variables('adAvailabilitySetName')]",
+            "properties": {
+                "PlatformUpdateDomainCount": 20,
+                "PlatformFaultDomainCount": 2
+            },
+            "sku": {
+                "name": "Aligned"
+            }
+        },
+        {
+            "type": "Microsoft.Resources/deployments",
+            "name": "VNet",
+            "apiVersion": "2016-02-01",
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[concat(parameters('_artifactsLocation'), '/nestedtemplates/vnet.json', parameters('_artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                },
+                "parameters": {
+                    "virtualNetworkName": {
+                        "value": "[variables('virtualNetworkName')]"
+                    },
+                    "virtualNetworkAddressRange": {
+                        "value": "[variables('virtualNetworkAddressRange')]"
+                    },
+                    "subnetName": {
+                        "value": "[variables('SubnetName')]"
+                    },
+                    "subnetRange": {
+                        "value": "[variables('subnetAddressPrefix')]"
+                    }
+                }
+            }
+        },
+
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[variables('IISNicName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "Microsoft.Resources/deployments/VNet"
+
+            ],
+            "tags": {
+                "displayName": "IISServerNIC"
+            },
+            "properties": {
+                "ipConfigurations": [{
+                    "name": "ipconfig1",
+                    "properties": {
+                        "publicIPAddress": {
+                            "id": "[resourceId ('Microsoft.Network/publicIPAddresses/', variables('ADpublicIPAddressName'))]"
+                        },
+                        "privateIPAllocationMethod": "Static",
+                        "privateIPAddress": "[variables('IISNicIPAddress')]",
+                        "subnet": {
+                            "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('SubnetName'))]"
+                        }
+                    }
+                }]
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[variables('adNicName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "Microsoft.Resources/deployments/VNet"
+
+            ],
+            "tags": {
+                "displayName": "ADServerNIC"
+            },
+            "properties": {
+                "ipConfigurations": [{
+                    "name": "ipconfig1",
+                    "properties": {
+                        "publicIPAddress": {
+                            "id": "[resourceId ('Microsoft.Network/publicIPAddresses/', variables('IISpublicIPAddressName'))]"
+                        },
+                        "privateIPAllocationMethod": "Static",
+                        "privateIPAddress": "[variables('adNicIPAddress')]",
+                        "subnet": {
+                            "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('SubnetName'))]"
+                        }
+                    }
+                }]
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[variables('SQLNicName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "Microsoft.Resources/deployments/VNet"
+
+            ],
+            "tags": {
+                "displayName": "SQLServerNIC"
+            },
+            "properties": {
+                "ipConfigurations": [{
+                    "name": "ipconfig1",
+                    "properties": {
+                        "publicIPAddress": {
+                            "id": "[resourceId ('Microsoft.Network/publicIPAddresses/', variables('SQLpublicIPAddressName'))]"
+                        },
+                        "privateIPAllocationMethod": "Static",
+                        "privateIPAddress": "[variables('SQLNicIPAddress')]",
+                        "subnet": {
+                            "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('SubnetName'))]"
+                        }
+                    }
+                }]
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines",
+            "name": "[variables('adVMName')]",
+            "apiVersion": "2017-03-30",
+            "location": "[parameters('location')]",
+            "copy": {
+                "name": "virtualMachineADLoop",
+                "count": "[parameters('numberOfADInstances')]"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', variables('adNicName'))]",
+                "[resourceId('Microsoft.Compute/availabilitySets', variables('adAvailabilitySetName'))]"
+
+            ],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "Standard_D2_v2"
+                },
+                "availabilitySet": {
+                    "id": "[resourceId('Microsoft.Compute/availabilitySets', variables('adAvailabilitySetName'))]"
+                },
+                "osProfile": {
+                    "computerName": "[variables('adVMName')]",
+                    "adminUsername": "[parameters('domainadminUsername')]",
+                    "adminPassword": "[parameters('domainadminPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "MicrosoftWindowsServer",
+                        "offer": "WindowsServer",
+                        "sku": "2016-Datacenter",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "[concat(variables('adVMName'),'_OSDisk')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Standard_LRS"
+                        }
+                    },
+                    "dataDisks": [{
+                        "name": "[concat(variables('adVMName'), '_DataDisk')]",
+                        "caching": "None",
+                        "createOption": "Empty",
+                        "diskSizeGB": 20,
+                        "managedDisk": {
+                            "storageAccountType": "Standard_LRS"
+                        },
+                        "lun": 0
+                    }]
+                },
+                "networkProfile": {
+                    "networkInterfaces": [{
+                        "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('adNicName'))]"
+                    }]
+                }
+            },
+            "resources": [{
+                "type": "extensions",
+                "name": "CreateADForest",
+                "apiVersion": "2017-03-30",
+                "location": "[parameters('location')]",
+                "dependsOn": [
+                    "[resourceId('Microsoft.Compute/virtualMachines', variables('adVMName'))]"
+                ],
+                "properties": {
+                    "publisher": "Microsoft.Powershell",
+                    "type": "DSC",
+                    "typeHandlerVersion": "2.19",
+                    "autoUpgradeMinorVersion": true,
+                    "settings": {
+                        "ModulesUrl": "[concat(parameters('_artifactsLocation'), '/DSC/CreateADPDC.zip', parameters('_artifactsLocationSasToken'))]",
+                        "ConfigurationFunction": "CreateADPDC.ps1\\CreateADPDC",
+                        "Properties": {
+                            "DomainName": "[parameters('domainName')]",
+                            "AdminCreds": {
+                                "UserName": "[parameters('domainadminUsername')]",
+                                "Password": "PrivateSettingsRef:AdminPassword"
+                            }
+                        }
+                    },
+                    "protectedSettings": {
+                        "Items": {
+                            "AdminPassword": "[parameters('domainadminPassword')]"
+                        }
+                    }
+                }
+            }]
+        }, {
+            "type": "Microsoft.Resources/deployments",
+            "name": "UpdateVNetDNS",
+            "apiVersion": "2016-02-01",
+            "dependsOn": [
+                "[resourceId('Microsoft.Compute/virtualMachines/extensions', variables('adVMName'), 'CreateADForest')]"
+            ],
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[concat(parameters('_artifactsLocation'), '/nestedtemplates/vnet-with-dns-server.json', parameters('_artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                },
+                "parameters": {
+                    "virtualNetworkName": {
+                        "value": "[variables('virtualNetworkName')]"
+                    },
+                    "virtualNetworkAddressRange": {
+                        "value": "[variables('virtualNetworkAddressRange')]"
+                    },
+                    "subnetName": {
+                        "value": "[variables('SubnetName')]"
+                    },
+                    "subnetRange": {
+                        "value": "[variables('subnetAddressPrefix')]"
+                    },
+                    "DNSServerAddress": {
+                        "value": [
+                            "[variables('adNicIPAddress')]"
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "apiVersion": "2017-03-30",
+            "type": "Microsoft.Compute/virtualMachines",
+            "name": "[variables('IISVMName')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+
+                "[resourceId('Microsoft.Network/networkInterfaces', variables('IISNicName'))]",
+                "[resourceId('Microsoft.Compute/virtualMachines', variables('adVMName'))]",
+                "[resourceId('Microsoft.Compute/virtualMachines/extensions', variables('adVMName'), 'CreateADForest')]"
+            ],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "Standard_D2_v2"
+                },
+                "availabilitySet": {
+                    "id": "[resourceId('Microsoft.Compute/availabilitySets', variables('adAvailabilitySetName'))]"
+                },
+                "osProfile": {
+                    "computerName": "[variables('IISVMName')]",
+                    "adminUsername": "[parameters('domainadminUsername')]",
+                    "adminPassword": "[parameters('domainadminPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "MicrosoftWindowsServer",
+                        "offer": "WindowsServer",
+                        "sku": "2016-Datacenter",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "[concat(variables('IISVMName'),'_OSDisk')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Standard_LRS"
+                        }
+                    },
+                    "dataDisks": [{
+                        "name": "[concat(variables('IISVMName'), '_DataDisk')]",
+                        "caching": "None",
+                        "createOption": "Empty",
+                        "diskSizeGB": 20,
+                        "managedDisk": {
+                            "storageAccountType": "Standard_LRS"
+                        },
+                        "lun": 0
+                    }]
+                },
+                "networkProfile": {
+                    "networkInterfaces": [{
+                        "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('IISNicName'))]"
+
+
+
+                    }]
+                }
+            }
+
+        },
+
+
+        {
+            "apiVersion": "2015-06-15",
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "name": "[concat(variables('IISVMName'),'/joindomain')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Compute/virtualMachines/', variables('IISVMName'))]",
+                "[resourceId('Microsoft.Compute/virtualMachines/extensions', variables('adVMName'), 'CreateADForest')]"
+            ],
+            "properties": {
+                "publisher": "Microsoft.Compute",
+                "type": "JsonADDomainExtension",
+                "typeHandlerVersion": "1.3",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "Name": "[parameters('domainToJoin')]",
+                    "OUPath": "[parameters('ouPath')]",
+                    "User": "[concat(parameters('domainToJoin'), '\\', parameters('domainadminUsername'))]",
+                    "Restart": "true",
+                    "Options": "[parameters('domainJoinOptions')]"
+                },
+                "protectedSettings": {
+                    "Password": "[parameters('domainadminPassword')]"
+                }
+            }
+        },
+
+        {
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "name": "[concat(variables('IISvmName'),'/', variables('vmExtensionName'))]",
+            "apiVersion": "2015-05-01-preview",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceID('Microsoft.Compute/virtualMachines/', variables('IISvmName'))]"
+            ],
+            "properties": {
+                "publisher": "Microsoft.Powershell",
+                "type": "DSC",
+                "typeHandlerVersion": "2.19",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "ModulesUrl": "[concat(parameters('modulesUrl'), '/ContosoWebsite.ps1.zip', parameters('_artifactsLocationSasToken'))]",
+                    "ConfigurationFunction": "[parameters('configurationFunction')]",
+                    "Properties": {
+                        "MachineName": "[variables('IISvmName')]"
+                    }
+                },
+                "protectedSettings": null
+            }
+        },
+
+        {
+            "apiVersion": "2017-03-30",
+            "type": "Microsoft.Compute/virtualMachines",
+            "name": "[variables('SQLVMName')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+
+                "[resourceId('Microsoft.Network/networkInterfaces', variables('SQLNicName'))]",
+                "[concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]",
+                "[resourceId('Microsoft.Compute/virtualMachines', variables('adVMName'))]",
+                "[resourceId('Microsoft.Compute/virtualMachines/extensions', variables('adVMName'), 'CreateADForest')]"
+            ],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[variables('sqlServerVMSize')]"
+                },
+
+              
+                "osProfile": {
+                    "computerName": "[variables('SQLVMName')]",
+                    "adminUsername": "[parameters('domainadminUsername')]",
+                    "adminPassword": "[parameters('domainadminPassword')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "[variables('sqlImagePublisher')]",
+                        "offer": "[variables('sqlImageOffer')]",
+                        "sku": "[variables('sqlImageSKU')]",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "[concat(variables('SQLVMName'),'_OSDisk')]",
+                        "vhd": {
+                            "uri": "[concat(reference(concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName')), variables('apiVersion')).primaryEndpoints.blob, variables('vhdContainer'), '/', variables('sqlServerOSDiskName'), '.vhd')]"
+                        },
+
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage"
+
+                    },
+                
+                "dataDisks": [{
+                    "name": "[concat(variables('SQLVMName'), '_DataDisk')]",
+                    "vhd": {
+                        "uri": "[concat(reference(concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName')), variables('apiVersion')).primaryEndpoints.blob, variables('vhdContainer'), '/', variables('sqlServerDataDiskName'), '.vhd')]"
+                    },
+
+                    "caching": "None",
+                    "createOption": "Empty",
+                    "diskSizeGB": 50,
+
+                    "lun": 0
+                }]
+            },
+            "networkProfile": {
+                "networkInterfaces": [{
+                    "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('SQLNicName'))]"
+
+
+
+                }]
+            }
+        }
+    },
+
+
+
+
+        {
+            "apiVersion": "2015-06-15",
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "name": "[concat(variables('SQLVMName'),'/joindomain')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Compute/virtualMachines/', variables('SQLVMName'))]"
+
+            ],
+            "properties": {
+                "publisher": "Microsoft.Compute",
+                "type": "JsonADDomainExtension",
+                "typeHandlerVersion": "1.3",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "Name": "[parameters('domainToJoin')]",
+                    "OUPath": "[parameters('ouPath')]",
+                    "User": "[concat(parameters('domainToJoin'), '\\', parameters('domainadminUsername'))]",
+                    "Restart": "true",
+                    "Options": "[parameters('domainJoinOptions')]"
+                },
+                "protectedSettings": {
+                    "Password": "[parameters('domainadminPassword')]"
+                }
+            }
+        }
+
+
+    ]
+}
