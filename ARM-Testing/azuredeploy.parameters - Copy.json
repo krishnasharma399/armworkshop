@@ -10,7 +10,7 @@
       "value": "mydomain.local"
     },
     "domainJoinOptions":{
-      "value": "3"
+      "value": 3
     },
     "ouPath":{
       "value": ""
