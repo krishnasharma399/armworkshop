@@ -2,28 +2,74 @@
   "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "adminUsername": {
-      "value": "GEN-UNIQUE"
+    "domainadminUsername": {
+      "value": "sccmadmin"
     },
+
     "numberOfInstances": {
       "value": 3
+    },
+    "domainToJoin":
+    {
+      "value": "mydomain.local"
+    },
+    "domainJoinOptions":{
+      "value": "3"
+    },
+    "ouPath":{
+      "value": ""
+    },
+    "IISdnsPrefix":{
+      "value": "iisdnsdomparam"
+    },
+    "SQLdnsPrefix":{
+      "value": "sqldnsdomparam"
+    },
+    "ADdnsPrefix":{
+      "value": "addnsdomparam"
+    },
+    "_artifactsLocation":{
+      "value": "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/active-directory-new-domain"
+    },
+    "_artifactsLocationSasToken": {
+      "value": ""
+    },
+    "location": {
+      "value": "[resourceGroup().location]"
+    },
+    "modulesUrl":
+    {
+      "value": "https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/dsc-extension-iis-server-windows-vm"
+    },
+    "configurationFunction":
+    {
+      "value": "ContosoWebsite.ps1\\ContosoWebsite"
+    },
+    "customerPrefixID":
+    {
+      "value": "mmsg"
+    },
+    "storageAccountType":
+    {
+      "value": "Standard_LRS"
+    },
+    "sqlServerVMSize": {
+      "value": "Standard_DS3"
     },
     
       "numberOfADInstances":{
         "value":1
       },
+      "domainUsername": {
+        "value": "azuerUser"
+      },
     
-    "adminPassword": {
-      "value": "GEN-PASSWORD"
+      "domainadminPassword": {
+      "value": "Password1!"
     },
     "domainName": {
       "value": "mydomain.local"
-    },
-    "dnsPrefix": {
-      "value": "GEN-UNIQUE"
-    },
-    "dnsLabelPrefix": {
-      "value": "GEN-UNIQUE" 
     }
+    
   }
 }
